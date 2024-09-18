@@ -5,9 +5,9 @@
 #include <chrono>
 #include <mkl.h>
 #include <cstdlib>
-#include <cmath>  // for fabs
+#include <cmath>  
 #ifdef _WIN32
-#include <float.h>  // for _controlfp_s on Windows
+#include <float.h>  
 #endif
 
 void matrix_multiply(const double* A, const double* B, double* C, int n);
@@ -25,14 +25,14 @@ int main() {
     _controlfp_s(&current_control, _EM_INEXACT | _EM_UNDERFLOW | _EM_OVERFLOW | _EM_ZERODIVIDE | _EM_INVALID, _MCW_EM);
 #endif
 
-    // 记录程序开始时间
+   
     auto program_start = std::chrono::high_resolution_clock::now();
     std::string matrixAFile = "matrixA_1000.txt";
     std::string matrixBFile = "matrixB_1000.txt";
     std::string vectorX0File = "x0_1000.txt";
     std::string vectorUFile = "u_1000.txt";
 
-    // 读取矩阵 A、B 和向量 x0、u
+
     std::vector<double> A, B, x0, u;
     int nA, nB, nX0, nU;
 
@@ -44,46 +44,41 @@ int main() {
         return -1;
     }
 
-    // 检查矩阵和向量维度匹配
     if (nA != nB || nA != nX0 || nA != nU) {
         std::cerr << "矩阵和向量维度不匹配" << std::endl;
         return -1;
     }
 
-    int n = nA;  // 矩阵和向量的维度
+    int n = nA;  
 
-    // 检查矩阵 A 是否奇异
     if (is_singular(A.data(), n)) {
         std::cerr << "矩阵A可能是奇异矩阵，无法继续计算" << std::endl;
         return -1;
     }
 
-    // 动态分配解向量 x
+ 
     double* x = new (std::nothrow) double[n];
     if (!x) {
         std::cerr << "内存分配失败" << std::endl;
         return -1;
     }
 
-    // 时间步长和迭代次数
+    
     double delt = 0.00001;   // 时间步长
     double t_final = 0.01; // 总时间
     int N = 5;           // 精细积分法迭代次数
 
-    // 记录开始时间
     auto start = std::chrono::high_resolution_clock::now();
 
     // 求解时不变线性微分方程
     solve_linear_system(A.data(), B.data(), x0.data(), u.data(), x, n, delt, N, t_final);
 
-    // 记录结束时间
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = end - start;
 
-    // 输出求解结果和运行时间
+  
     std::cout << "求解时间: " << elapsed.count() << " 秒" << std::endl;
 
-    // 输出解向量 x
     if (n <= 100) {
         std::cout << "x(t) = \n";
         for (int i = 0; i < n; i++) {
@@ -98,7 +93,7 @@ int main() {
 
     return 0;
 }
-// 实现矩阵指数的计算，使用精细积分法
+
 void matrix_exponential(const double* A, double* expAt, int n, double delt, int N) {
     double* T_a = new double[n * n];
     double* temp = new double[n * n];
@@ -108,23 +103,21 @@ void matrix_exponential(const double* A, double* expAt, int n, double delt, int 
         return;
     }
 
-    // 初始化 T_a = A * delt * (I + (A * delt) / 2)
-    cblas_dcopy(n * n, A, 1, T_a, 1);  // T_a = A
-    cblas_dscal(n * n, delt, T_a, 1);  // T_a = A * delt
-
+ 
+    cblas_dcopy(n * n, A, 1, T_a, 1);  
+    cblas_dscal(n * n, delt, T_a, 1);  
     // temp = A * delt / 2
-    cblas_dcopy(n * n, T_a, 1, temp, 1);  // temp = A * delt
-    cblas_dscal(n * n, 0.5, temp, 1);     // temp = A * delt / 2
+    cblas_dcopy(n * n, T_a, 1, temp, 1);  
+    cblas_dscal(n * n, 0.5, temp, 1);   
 
-    // T_a = A * delt * (I + (A * delt) / 2)
-    cblas_daxpy(n * n, 1.0, temp, 1, T_a, 1);  // T_a = A * delt + (A * delt / 2)
-
+   
+    cblas_daxpy(n * n, 1.0, temp, 1, T_a, 1);  
     // 递推计算 T_a
     for (int iter = 0; iter < N; iter++) {
-        // temp = T_a^2
+ 
         matrix_square(T_a, temp, n);
 
-       /*// 输出整个 T_a 的值
+       /*
         std::cout << "T_a at iteration " << iter << ":\n";
         for (int i = 0; i < n; i++) {
             for (int j = 0; j < n; j++) {
@@ -134,12 +127,11 @@ void matrix_exponential(const double* A, double* expAt, int n, double delt, int 
         }
         std::cout << std::endl;
         */
-        // T_a = 2 * T_a + T_a^2
-        cblas_dscal(n * n, 2.0, T_a, 1);      // T_a = 2 * T_a
+       
+        cblas_dscal(n * n, 2.0, T_a, 1);     
         cblas_daxpy(n * n, 1.0, temp, 1, T_a, 1);
     }
 
-    // 最终计算 expAt = I + T_a
     cblas_dcopy(n * n, T_a, 1, expAt, 1);  // expAt = T_a
     double* I = new double[n * n];
     if (!I) {
@@ -156,7 +148,6 @@ void matrix_exponential(const double* A, double* expAt, int n, double delt, int 
     delete[] I;
 }
 
-// 检查矩阵 A 是否奇异
 bool is_singular(const double* A, int n) {
     std::vector<int> ipiv(n);
     std::vector<double> A_copy(A, A + n * n);
@@ -177,7 +168,7 @@ bool is_singular(const double* A, int n) {
     return false;
 }
 
-// 求解时不变线性微分方程
+
 void solve_linear_system(const double* A, const double* B, const double* x0, const double* u, double* x, int n, double delt, int N, double t_final) {
     double* expAt = new double[n * n];
     double* temp = new double[n];
@@ -188,13 +179,13 @@ void solve_linear_system(const double* A, const double* B, const double* x0, con
         return;
     }
 
-    // 计算矩阵指数 exp(A * delt)
+
     matrix_exponential(A, expAt, n, delt, N);
 
-    // 初始化 x_current 为 x0
+  
     cblas_dcopy(n, x0, 1, x_current, 1);
 
-    // 迭代计算从 t = 0 到 t = t_final 的状态
+  
     for (double t = 0; t < t_final; t += delt) {
         // 自由响应：x(t + delt) = exp(A * delt) * x(t)
         cblas_dgemv(CblasRowMajor, CblasNoTrans, n, n, 1.0, expAt, n, x_current, 1, 0.0, x, 1);
@@ -207,13 +198,13 @@ void solve_linear_system(const double* A, const double* B, const double* x0, con
         cblas_dcopy(n, x, 1, x_current, 1);
     }
 
-    // 清理内存
+
     delete[] expAt;
     delete[] temp;
     delete[] x_current;
 }
 
-// 从文件读取矩阵
+
 bool read_matrix_from_file(const std::string& filename, std::vector<double>& matrix, int& n) {
     std::ifstream file(filename);
     if (!file.is_open()) {
@@ -234,7 +225,7 @@ bool read_matrix_from_file(const std::string& filename, std::vector<double>& mat
             col_count++;
         }
         if (row_count == 0) {
-            n = col_count;  // 确定矩阵的维度
+            n = col_count;  
         }
         else if (col_count != n) {
             std::cerr << "文件格式不正确，列数不匹配" << std::endl;
@@ -243,11 +234,11 @@ bool read_matrix_from_file(const std::string& filename, std::vector<double>& mat
         row_count++;
     }
 
-    matrix = std::move(temp_matrix);  // 将临时矩阵赋值给目标矩阵
+    matrix = std::move(temp_matrix); 
     return true;
 }
 
-// 从文件读取向量
+
 bool read_vector_from_file(const std::string& filename, std::vector<double>& vec, int& n) {
     std::ifstream file(filename);
     if (!file.is_open()) {
