@@ -10,22 +10,18 @@
 #define SUBDOMAIN_SIZE 256  // 假设划分子域的大小为256
 
 // 函数声明
-void matrix_exponential_subdomain(const double* A, double* expAt, int subdomain_size, double delt, int N);
+void matrix_exponential_subdomain(const double* A, double* expAt, int n, int subdomain_size, double delt, int N);
 bool read_matrix_from_file(const std::string& filename, std::vector<double>& matrix, int& n);
 void matrix_multiply(const double* A, const double* B, double* C, int n);
 void matrix_add(double* A, const double* B, int n);
 void matrix_square(const double* A, double* C, int n);
 
 int main() {
-    // 控制浮点异常
-    unsigned int current_control;
-    _controlfp_s(&current_control, _EM_INEXACT | _EM_UNDERFLOW | _EM_OVERFLOW | _EM_ZERODIVIDE | _EM_INVALID, _MCW_EM);
-
     // 记录程序开始时间
     auto program_start = std::chrono::high_resolution_clock::now();
 
     // 读取矩阵文件
-    std::string matrixAFile = "matrixA_1024.txt"; // 假设这是1024阶的矩阵文件
+    std::string matrixAFile = "matrixA_1000.txt";  
 
     // 读取矩阵 A
     std::vector<double> A;
@@ -36,17 +32,10 @@ int main() {
         return -1;
     }
 
-    // 子域处理
+    // 确定矩阵大小并处理不能被整除的情况
     int subdomain_size = SUBDOMAIN_SIZE;
-    int n = std::ceil(static_cast<double>(nA) / subdomain_size) * subdomain_size; // 扩展矩阵
-
-    // 扩展矩阵 A 以适应子域法
-    std::vector<double> A_extended(n * n, 0.0);
-    for (int i = 0; i < nA; i++) {
-        for (int j = 0; j < nA; j++) {
-            A_extended[i * n + j] = A[i * nA + j];
-        }
-    }
+    int n = nA;  // 原始矩阵维度
+    int num_subdomains = (n + subdomain_size - 1) / subdomain_size;  // 子域个数，处理不能整除的情况
 
     // 动态分配指数矩阵 expAt
     double* expAt = new (std::nothrow) double[n * n];
@@ -63,7 +52,7 @@ int main() {
     auto start = std::chrono::high_resolution_clock::now();
 
     // 计算子域内的矩阵指数
-    matrix_exponential_subdomain(A_extended.data(), expAt, subdomain_size, delt, N);
+    matrix_exponential_subdomain(A.data(), expAt, n, subdomain_size, delt, N);
 
     // 记录结束时间
     auto end = std::chrono::high_resolution_clock::now();
@@ -83,7 +72,7 @@ int main() {
 }
 
 // 实现子域矩阵指数的计算，使用精细积分法
-void matrix_exponential_subdomain(const double* A, double* expAt, int subdomain_size, double delt, int N) {
+void matrix_exponential_subdomain(const double* A, double* expAt, int n, int subdomain_size, double delt, int N) {
     double* T_a = new double[subdomain_size * subdomain_size];
     double* temp = new double[subdomain_size * subdomain_size];
 
@@ -92,44 +81,52 @@ void matrix_exponential_subdomain(const double* A, double* expAt, int subdomain_
         return;
     }
 
-    // 初始化 T_a = A * delt * (I + (A * delt) / 2)
-    cblas_dcopy(subdomain_size * subdomain_size, A, 1, T_a, 1);  // T_a = A
-    cblas_dscal(subdomain_size * subdomain_size, delt, T_a, 1);  // T_a = A * delt
+    // 逐个子域处理
+    for (int i = 0; i < n; i += subdomain_size) {
+        for (int j = 0; j < n; j += subdomain_size) {
+            int current_subdomain_size = std::min(subdomain_size, n - std::max(i, j));  // 处理边界子域
 
-    // temp = A * delt / 2
-    cblas_dcopy(subdomain_size * subdomain_size, T_a, 1, temp, 1);  // temp = A * delt
-    cblas_dscal(subdomain_size * subdomain_size, 0.5, temp, 1);     // temp = A * delt / 2
+            // 初始化 T_a = A * delt * (I + (A * delt) / 2)
+            cblas_dcopy(current_subdomain_size * current_subdomain_size, A + i * n + j, 1, T_a, 1);  // T_a = A
+            cblas_dscal(current_subdomain_size * current_subdomain_size, delt, T_a, 1);  // T_a = A * delt
 
-    // T_a = A * delt * (I + (A * delt) / 2)
-    cblas_daxpy(subdomain_size * subdomain_size, 1.0, temp, 1, T_a, 1);  // T_a = A * delt + (A * delt / 2)
+            // temp = A * delt / 2
+            cblas_dcopy(current_subdomain_size * current_subdomain_size, T_a, 1, temp, 1);  // temp = A * delt
+            cblas_dscal(current_subdomain_size * current_subdomain_size, 0.5, temp, 1);     // temp = A * delt / 2
 
-    // 递推计算 T_a
-    for (int iter = 0; iter < N; iter++) {
-        // temp = T_a^2
-        matrix_square(T_a, temp, subdomain_size);
+            // T_a = A * delt * (I + (A * delt) / 2)
+            cblas_daxpy(current_subdomain_size * current_subdomain_size, 1.0, temp, 1, T_a, 1);  // T_a = A * delt + (A * delt / 2)
 
-        // T_a = 2 * T_a + T_a^2
-        cblas_dscal(subdomain_size * subdomain_size, 2.0, T_a, 1);      // T_a = 2 * T_a
-        cblas_daxpy(subdomain_size * subdomain_size, 1.0, temp, 1, T_a, 1);
+            // 递推计算 T_a
+            for (int iter = 0; iter < N; iter++) {
+                // temp = T_a^2
+                matrix_square(T_a, temp, current_subdomain_size);
+
+                // T_a = 2 * T_a + T_a^2
+                cblas_dscal(current_subdomain_size * current_subdomain_size, 2.0, T_a, 1);      // T_a = 2 * T_a
+                cblas_daxpy(current_subdomain_size * current_subdomain_size, 1.0, temp, 1, T_a, 1);
+            }
+
+            // 最终计算 expAt = I + T_a
+            double* I = new double[current_subdomain_size * current_subdomain_size];
+            for (int k = 0; k < current_subdomain_size * current_subdomain_size; k++) {
+                I[k] = (k % (current_subdomain_size + 1)) == 0 ? 1.0 : 0.0;  // 单位矩阵 I
+            }
+            matrix_add(T_a, I, current_subdomain_size);
+
+            // 将结果拷贝回 expAt
+            for (int p = 0; p < current_subdomain_size; p++) {
+                for (int q = 0; q < current_subdomain_size; q++) {
+                    expAt[(i + p) * n + (j + q)] = T_a[p * current_subdomain_size + q];
+                }
+            }
+
+            delete[] I;
+        }
     }
-
-    // 最终计算 expAt = I + T_a
-    cblas_dcopy(subdomain_size * subdomain_size, T_a, 1, expAt, 1);  // expAt = T_a
-    double* I = new double[subdomain_size * subdomain_size];
-    if (!I) {
-        std::cerr << "内存分配失败！" << std::endl;
-        return;
-    }
-
-    for (int i = 0; i < subdomain_size * subdomain_size; i++) {
-        I[i] = (i % (subdomain_size + 1)) == 0 ? 1.0 : 0.0;  // 单位矩阵 I
-    }
-
-    matrix_add(expAt, I, subdomain_size);  // expAt = I + T_a
 
     delete[] T_a;
     delete[] temp;
-    delete[] I;
 }
 
 // 从文件读取矩阵
